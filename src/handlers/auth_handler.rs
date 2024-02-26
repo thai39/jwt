@@ -1,16 +1,25 @@
-use axum::{http::StatusCode, response::IntoResponse, Json};
+use axum::{http::StatusCode, response::IntoResponse, Extension, Json};
 use chrono::Utc;
 use entity::user;
 use sea_orm::{ActiveModelTrait, ColumnTrait, Condition, Database, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
 
-use crate::models::user_model::{Login, Register,User};
+use crate::{models::user_model::{Login, Register,User, LoginModel}, utils::{api_error::ApiError, jwt::encode_jwt}};
 
 pub async fn register(
+    Extension(db): Extension<DatabaseConnection>,
     Json(data): Json<Register>
-) -> impl IntoResponse{
-    let db: DatabaseConnection = Database::connect("postgres://postgres:Admin123@localhost:5432/jwt_axum").await.unwrap();
+) -> Result<(), ApiError>{
+    
 
+    let check_exists = entity::user::Entity::find()
+    .filter(entity::user::Column::Email.eq(data.email.clone()))
+    .one(&db).await
+    .map_err(|err| ApiError {message: err.to_string(), status_code:StatusCode::INTERNAL_SERVER_ERROR, error_code:Some(50)})?;
+
+    if check_exists != None {
+        return Err(ApiError{message: "User exists".to_owned(), status_code:StatusCode::CONFLICT, error_code: Some(40)});
+    }
     let user_model = user::ActiveModel{
         name: Set(data.name.to_owned()),
         email: Set(data.email.to_owned()),
@@ -19,32 +28,26 @@ pub async fn register(
         created_at: Set(Utc::now().naive_utc()),
          ..Default::default()
     };
-    user_model.insert(&db).await.unwrap();
-
-    db.close().await.unwrap();
-    (StatusCode::ACCEPTED, "Successfully")
+    user_model.insert(&db).await
+    .map_err(|err| ApiError {message: err.to_string(), status_code:StatusCode::INTERNAL_SERVER_ERROR, error_code:Some(50)})?;
+    Ok(())
 }
 
 pub async fn login(
+    Extension(db): Extension<DatabaseConnection>,
     Json(data): Json<Login>
-) -> impl IntoResponse{
-    let db: DatabaseConnection = Database::connect("postgres://postgres:Admin123@localhost:5432/jwt_axum").await.unwrap();
-
+) -> Result<Json<LoginModel>, ApiError>{
    let user_data = entity::user::Entity::find()
        .filter(
            Condition::all()
                .add(entity::user::Column::Email.eq(data.email))
                .add(entity::user::Column::Password.eq(data.password))
-       ).one(&db).await.unwrap().unwrap();
+       ).one(&db).await
+       .map_err(|err| ApiError {message: err.to_string(), status_code:StatusCode::INTERNAL_SERVER_ERROR, error_code:Some(50)})?
+       .ok_or(ApiError {message: "Email or Password invalid!!!".to_owned(), status_code:StatusCode::NOT_FOUND, error_code:Some(44)})?;
 
-    let info_response = User{
-        name: user_data.name.to_string(),
-        email: user_data.email.to_string(),
-        password: user_data.password.to_string(),
-        uuid: user_data.uuid,
-        created_at: user_data.created_at,
-    };
+    let token = encode_jwt(user_data.email)
+    .map_err(|_| ApiError { message: "Failed to login".to_owned(), status_code: StatusCode::UNAUTHORIZED, error_code: Some(41) })?;
     
-    db.close().await.unwrap();
-    (StatusCode::ACCEPTED, Json(info_response))
+    Ok(Json(LoginModel{token}))
 }

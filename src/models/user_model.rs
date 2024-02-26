@@ -30,3 +30,8 @@ pub struct Update {
     pub password: String,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct LoginModel{
+    pub token: String
+}
+

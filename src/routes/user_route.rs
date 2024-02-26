@@ -1,5 +1,5 @@
-use axum::{http::Method, routing::{delete, get, put}, Router};
-use tower_http::cors::{Any, CorsLayer};
+use axum::{http::Method, routing::{delete, put, get, post}, Router};
+use tower_http::cors::{CorsLayer, Any};
 
 use crate::handlers::user_handler::{del, get_all_users, update};
 
