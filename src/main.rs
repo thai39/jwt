@@ -1,4 +1,4 @@
-use axum::{Extension, Router};
+use axum::{middleware, Extension, Router};
 use sea_orm::Database;
 
 mod handlers;
@@ -16,10 +16,13 @@ async fn server() {
     let db = Database::connect(conn).await.expect("Failed to connect to db");
 
     let app = Router::new()
-        .merge(routes::auth_route::auth_routes())
-        .merge(routes::user_route::user_routes())
+    .merge(routes::user_route::user_routes())
+    .route_layer(middleware::from_fn(utils::guards::guard))
+    .merge(routes::auth_route::auth_routes())
         .layer(Extension(db));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+        axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+        .serve(app.into_make_service())
+        .await
+        .unwrap()
 }
